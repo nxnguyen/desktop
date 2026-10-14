@@ -24,10 +24,10 @@ function fixSetuid(context) {
 function getAppFileName(context) {
     switch (context.electronPlatformName) {
     case 'win32':
-        return 'Mattermost.exe';
+        return `${context.packager.appInfo.productFilename}.exe`;
     case 'darwin':
     case 'mas':
-        return 'Mattermost.app';
+        return `${context.packager.appInfo.productFilename}.app`;
     case 'linux':
         return context.packager.executableName;
     default:

@@ -1,12 +1,12 @@
 {
   "name": "mattermost-desktop",
-  "productName": "Mattermost",
+  "productName": "Amobi Collab",
   "version": "6.4.0-develop.1",
-  "description": "Mattermost",
+  "description": "Amobi Collab",
   "main": "dist/index.js",
   "author": "Mattermost, Inc. <feedback@mattermost.com>",
   "license": "Apache-2.0",
-  "desktopName": "com.Mattermost.Desktop",
+  "desktopName": "com.amobi.collab.platform.desktop",
   "homepage": "https://mattermost.com",
   "engines": {
     "node": ">=24.0.0"
@@ -20,8 +20,9 @@
     "clean": "rm -rf release/ node_modules/ src/node_modules/ dist/ && cd e2e && npm run clean && cd -",
     "clean-install": "npm run clean && npm install",
     "clean-dist": "rm -rf dist/",
-    "check": "run-p lint:js-quiet check-build-config check-types test:unit",
+    "check": "run-p lint:js-quiet check-build-config check-types check-mac-qa-config test:unit",
     "check-build-config": "tsc ./src/common/config/buildConfig.ts --outDir dist --baseUrl src --skipLibCheck && node scripts/check_build_config.js",
+    "check-mac-qa-config": "node scripts/validate-mac-qa-config.cjs",
     "check-types": "tsc",
     "prune": "ts-prune",
     "i18n-extract": "mmjstool i18n extract-desktop",

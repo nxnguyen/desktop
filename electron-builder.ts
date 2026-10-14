@@ -3,6 +3,7 @@
 const semver = require('semver');
 
 const pkg = require('./package.json');
+const macAdhocQa = process.env.AMOBI_MAC_ADHOC_QA === 'true';
 
 function getMacVersions() {
     const stableVersion = semver.coerce(pkg.version)?.version || pkg.version;
@@ -19,11 +20,11 @@ function getMacVersions() {
 }
 
 const config = {
-    appId: 'Mattermost.Desktop',
-    artifactName: '${version}/${name}-${version}-${os}-${arch}.${ext}',
+    appId: 'com.amobi.collab.platform.desktop',
+    artifactName: macAdhocQa ? '${version}/amobi-collab-${version}-${os}-${arch}-adhoc-qa.${ext}' : '${version}/amobi-collab-${version}-${os}-${arch}.${ext}',
     directories: {
         buildResources: 'src/assets',
-        output: 'release',
+        output: macAdhocQa ? 'release-adhoc-qa' : 'release',
     },
     extraMetadata: {
         main: 'index.js',
@@ -59,7 +60,7 @@ const config = {
     ],
     protocols: [
         {
-            name: 'Mattermost',
+            name: 'Amobi Collab',
             schemes: [
                 'mattermost',
             ],
@@ -69,7 +70,7 @@ const config = {
     afterPack: 'scripts/afterpack.js',
     deb: {
         artifactName: '${version}/${name}_${version}-1_${arch}.${ext}',
-        synopsis: 'Mattermost Desktop App',
+        synopsis: 'Amobi Collab Desktop App',
         depends: [
             'libnotify4',
             'libxtst6',
@@ -93,8 +94,8 @@ const config = {
             'rpm',
             'flatpak',
         ],
-        appId: 'com.Mattermost.Desktop',
-        executableName: 'com.Mattermost.Desktop',
+        appId: 'com.amobi.collab.platform.desktop',
+        executableName: 'com.amobi.collab.platform.desktop',
         desktop: {
             entry: {
                 StartupWMClass: pkg.desktopName,
@@ -139,10 +140,20 @@ const config = {
         gatekeeperAssess: true,
         entitlements: './resources/mac/entitlements.mac.plist',
         entitlementsInherit: './resources/mac/entitlements.mac.inherit.plist',
+
+        // Local ad hoc QA has no provisioning profile or Developer ID team.
+        // Keep these allowances scoped to explicitly requested QA artifacts.
+        ...(macAdhocQa ? {
+            identity: '-',
+            notarize: false,
+            gatekeeperAssess: false,
+            entitlements: './resources/mac/entitlements.adhoc-qa.plist',
+            entitlementsInherit: './resources/mac/entitlements.adhoc-qa.inherit.plist',
+        } : {}),
         extendInfo: {
             NSMicrophoneUsageDescription: 'Microphone access is used to capture audio for voice communication and recordings.',
             NSCameraUsageDescription: 'Camera access is used to capture video for video conferencing and recordings.',
-            NSFocusStatusUsageDescription: 'Focus status is used by Mattermost to determine whether to send notifications or not.',
+            NSFocusStatusUsageDescription: 'Focus status is used by Amobi Collab to determine whether to send notifications or not.',
             LSFileQuarantineEnabled: true,
         },
         x64ArchFiles: '**/node_modules/@koromix/koffi-darwin-*/darwin_*/koffi.node',
@@ -201,16 +212,16 @@ const config = {
             },
         ],
         signExts: ['.dll', '.node'],
-        azureSignOptions: process.env.AZURE_CLIENT_ID ? {
-            certificateProfileName: 'mattermost-desktop-app',
-            codeSigningAccountName: 'DesktopAppCodeSigning',
-            endpoint: 'https://eus.codesigning.azure.net',
-            publisherName: 'CN="Mattermost, Inc.", O="Mattermost, Inc.", L=Palo Alto, S=California, C=US',
+        azureSignOptions: process.env.AZURE_CLIENT_ID && process.env.AMOBI_AZURE_CERTIFICATE_PROFILE ? {
+            certificateProfileName: process.env.AMOBI_AZURE_CERTIFICATE_PROFILE,
+            codeSigningAccountName: process.env.AMOBI_AZURE_SIGNING_ACCOUNT,
+            endpoint: process.env.AMOBI_AZURE_SIGNING_ENDPOINT,
+            publisherName: process.env.AMOBI_WINDOWS_PUBLISHER,
         } : null,
     },
     msi: {
         additionalWixArgs: ['-ext', 'WixUtilExtension'],
-        upgradeCode: '{8523DAF0-699D-4CC7-9A65-C5E696A9DE6D}',
+        upgradeCode: '{91036C94-2621-52BD-B312-D0676913C52D}',
         perMachine: true,
     },
     rpm: {
