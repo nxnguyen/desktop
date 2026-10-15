@@ -1,8 +1,10 @@
 // Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import path from 'path';
+
 import {app} from 'electron';
-import {autoUpdater, type AppUpdater} from 'electron-updater';
+import {AppImageUpdater, autoUpdater, type AppUpdater} from 'electron-updater';
 import semver from 'semver';
 
 import buildConfig from 'common/config/buildConfig';
@@ -10,9 +12,10 @@ import buildConfig from 'common/config/buildConfig';
 export type UpdateState = 'available' | 'progressing' | 'completed' | 'interrupted';
 type StateListener = (state: UpdateState, version: string, percent?: number) => void;
 
-/** Native installer checks stay inside electron-updater; this controls consent.
+/** Installer checks stay inside electron-updater; this controls consent.
  * On macOS, update-downloaded means the ZIP passed its checksum. Squirrel verifies
  * its signature only after the user explicitly chooses to install.
+ * Linux AppImages use the HTTPS manifest checksum, not native package signatures.
  */
 export class SelfHostedUpdater {
     private driver?: AppUpdater;
@@ -27,7 +30,7 @@ export class SelfHostedUpdater {
     }
 
     private getDriver = () => {
-        this.driver ??= autoUpdater;
+        this.driver ??= process.platform === 'linux' ? new AppImageUpdater() : autoUpdater;
         if (!this.initialized) {
             this.initialized = true;
             this.driver.autoDownload = false;
@@ -78,6 +81,10 @@ export class SelfHostedUpdater {
     };
 
     check = async (): Promise<{version: string} | null> => {
+        // Managed Linux formats use their package manager, outside this feed.
+        if (process.platform === 'linux' && !process.env.APPIMAGE) {
+            return null;
+        }
         if (this.downloading || this.ready) {
             return this.available ? {version: this.available} : null;
         }
@@ -130,6 +137,16 @@ export class SelfHostedUpdater {
         }
         this.installing = true;
         try {
+            if (process.platform === 'linux') {
+                const appImage = process.env.APPIMAGE;
+                if (!appImage || !path.isAbsolute(appImage) || appImage.includes('\0')) {
+                    throw new Error('AppImage install path is unavailable');
+                }
+
+                // The old AppImage mount/extraction disappears on quit. Its
+                // replacement must inherit a directory that survives that exit.
+                process.chdir(path.dirname(appImage));
+            }
             this.getDriver().quitAndInstall(false, true);
             return true;
         } catch {

@@ -7,7 +7,9 @@ const path = require('node:path');
 
 const builderPath = require.resolve('../electron-builder.ts');
 const previousFlag = process.env.AMOBI_MAC_ADHOC_QA;
+const previousChannel = process.env.AMOBI_DESKTOP_CHANNEL;
 try {
+    delete process.env.AMOBI_DESKTOP_CHANNEL;
     delete process.env.AMOBI_MAC_ADHOC_QA;
     delete require.cache[builderPath];
     // eslint-disable-next-line global-require
@@ -46,6 +48,11 @@ try {
     }
     console.log('Mac QA packaging configuration checks passed');
 } finally {
+    if (previousChannel === undefined) {
+        delete process.env.AMOBI_DESKTOP_CHANNEL;
+    } else {
+        process.env.AMOBI_DESKTOP_CHANNEL = previousChannel;
+    }
     if (previousFlag === undefined) {
         delete process.env.AMOBI_MAC_ADHOC_QA;
     } else {

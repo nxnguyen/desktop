@@ -4,6 +4,16 @@ const semver = require('semver');
 
 const pkg = require('./package.json');
 const macAdhocQa = process.env.AMOBI_MAC_ADHOC_QA === 'true';
+const requestedChannel = process.env.AMOBI_DESKTOP_CHANNEL || 'stable';
+if (!['qa', 'stable'].includes(requestedChannel)) {
+    throw new Error('AMOBI_DESKTOP_CHANNEL must be qa or stable');
+}
+if (macAdhocQa && process.env.AMOBI_DESKTOP_CHANNEL === 'stable') {
+    throw new Error('Mac ad hoc builds cannot use the stable update channel');
+}
+const qaChannel = macAdhocQa || requestedChannel === 'qa';
+const qaSuffix = qaChannel ? '-qa' : '';
+const channelOutput = qaChannel ? 'release-qa' : 'release';
 
 function getMacVersions() {
     const stableVersion = semver.coerce(pkg.version)?.version || pkg.version;
@@ -21,10 +31,10 @@ function getMacVersions() {
 
 const config = {
     appId: 'com.amobi.collab.platform.desktop',
-    artifactName: macAdhocQa ? '${version}/amobi-collab-${version}-${os}-${arch}-adhoc-qa.${ext}' : '${version}/amobi-collab-${version}-${os}-${arch}.${ext}',
+    artifactName: '${version}/amobi-collab-${version}-${os}-${arch}' + (macAdhocQa ? '-adhoc-qa' : qaSuffix) + '.${ext}',
     directories: {
         buildResources: 'src/assets',
-        output: macAdhocQa ? 'release-adhoc-qa' : 'release',
+        output: macAdhocQa ? 'release-adhoc-qa' : channelOutput,
     },
     extraMetadata: {
         main: 'index.js',
@@ -32,8 +42,8 @@ const config = {
     },
     publish: [{
         provider: 'generic',
-        url: 'https://updates.152.42.230.207.sslip.io/desktop/' + (macAdhocQa ? 'qa' : 'stable') + '/${os}/${arch}',
-        channel: macAdhocQa ? 'qa' : 'latest',
+        url: 'https://updates.152.42.230.207.sslip.io/desktop/' + (qaChannel ? 'qa' : 'stable') + '/${os}/${arch}',
+        channel: qaChannel ? 'qa' : 'latest',
     }],
     files: [
         '!node_modules/**/*',

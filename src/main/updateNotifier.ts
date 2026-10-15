@@ -220,9 +220,12 @@ export class UpdateNotifier {
         }
         this.installPromptOpen = true;
         try {
+            const message = process.platform === 'linux' ?
+                localizeMessage('main.autoUpdater.downloadedLinux', 'The update has downloaded. Restart Amobi Collab to install it.') :
+                localizeMessage('main.autoUpdater.downloaded', 'The update has downloaded. Restart Amobi Collab to verify and install it.');
             const result = await MessageModal.showMessageModal({
                 title: app.name,
-                message: localizeMessage('main.autoUpdater.downloaded', 'The update has downloaded. Restart Amobi Collab to verify and install it.'),
+                message,
                 type: 'info',
                 buttons: [localizeMessage('label.later', 'Later'), localizeMessage('main.autoUpdater.restart', 'Restart to update')],
                 defaultId: 0,

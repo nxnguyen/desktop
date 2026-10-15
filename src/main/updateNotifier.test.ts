@@ -72,13 +72,19 @@ jest.mock('electron-is-dev', () => ({
 
 jest.mock('electron-updater', () => {
     const {EventEmitter} = jest.requireActual('events');
+    const driver = Object.assign(new EventEmitter(), {
+        checkForUpdates: jest.fn(),
+        downloadUpdate: jest.fn(),
+        quitAndInstall: jest.fn(),
+        netSession: {webRequest: {onBeforeRequest: jest.fn()}},
+    });
     return {
-        autoUpdater: Object.assign(new EventEmitter(), {
-            checkForUpdates: jest.fn(),
-            downloadUpdate: jest.fn(),
-            quitAndInstall: jest.fn(),
-            netSession: {webRequest: {onBeforeRequest: jest.fn()}},
-        }),
+        autoUpdater: driver,
+        AppImageUpdater: class {
+            constructor() {
+                return driver;
+            }
+        },
     };
 });
 
@@ -95,6 +101,22 @@ jest.mock('app/mainWindow/modals/messageModal', () => ({
 }));
 
 describe('main/updateNotifier', () => {
+    let savedAppImage: string | undefined;
+    let chdir: jest.SpyInstance;
+    beforeEach(() => {
+        savedAppImage = process.env.APPIMAGE;
+        process.env.APPIMAGE = '/tmp/fixture.AppImage';
+        chdir = jest.spyOn(process, 'chdir').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        chdir.mockRestore();
+        if (savedAppImage === undefined) {
+            delete process.env.APPIMAGE;
+        } else {
+            process.env.APPIMAGE = savedAppImage;
+        }
+    });
+
     describe('constructor', () => {
         afterEach(() => {
             jest.resetAllMocks();
@@ -297,6 +319,26 @@ describe('main/updateNotifier', () => {
             jest.mocked(MessageModal.showMessageModal).mockResolvedValueOnce({response: 1} as Awaited<ReturnType<typeof MessageModal.showMessageModal>>);
             await clickDownload();
             expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+        });
+
+        it('describes Linux install without promising a later native signature check', async () => {
+            const platform = process.platform;
+            Object.defineProperty(process, 'platform', {value: 'linux'});
+            try {
+                const notifier = new UpdateNotifier();
+                expect(notifier).toBeDefined();
+                await clickDownload();
+                autoUpdater.emit('update-downloaded', downloadedUpdate);
+                await Promise.resolve();
+                expect(MessageModal.showMessageModal).toHaveBeenCalledWith(expect.objectContaining({
+                    message: 'The update has downloaded. Restart Amobi Collab to install it.',
+                    defaultId: 0,
+                    cancelId: 0,
+                }));
+                expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+            } finally {
+                Object.defineProperty(process, 'platform', {value: platform});
+            }
         });
 
         it('does not download a persisted candidate excluded by native update checks', async () => {

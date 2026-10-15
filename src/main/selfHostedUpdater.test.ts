@@ -26,6 +26,70 @@ function fixture(version = '6.4.1') {
 }
 
 describe('self hosted desktop updater', () => {
+    let savedAppImage: string | undefined;
+    let chdir: jest.SpyInstance;
+    beforeEach(() => {
+        savedAppImage = process.env.APPIMAGE;
+        process.env.APPIMAGE = '/tmp/fixture.AppImage';
+        chdir = jest.spyOn(process, 'chdir').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        chdir.mockRestore();
+        if (savedAppImage === undefined) {
+            delete process.env.APPIMAGE;
+        } else {
+            process.env.APPIMAGE = savedAppImage;
+        }
+    });
+
+    it('leaves managed Linux package formats outside the AppImage updater path', async () => {
+        const platform = process.platform;
+        Object.defineProperty(process, 'platform', {value: 'linux'});
+        delete process.env.APPIMAGE;
+        try {
+            const {updater, driver} = fixture();
+            await expect(updater.check()).resolves.toBeNull();
+            expect(driver.checkForUpdates).not.toHaveBeenCalled();
+            expect(updater.install()).toBe(false);
+        } finally {
+            Object.defineProperty(process, 'platform', {value: platform});
+        }
+    });
+
+    it('restarts Linux from the persistent AppImage directory, outside the old runtime', async () => {
+        const platform = process.platform;
+        Object.defineProperty(process, 'platform', {value: 'linux'});
+        try {
+            const {updater, driver} = fixture();
+            await updater.check();
+            driver.emit('update-downloaded', {version: '6.4.1'});
+            expect(updater.install()).toBe(true);
+            expect(chdir).toHaveBeenCalledWith('/tmp');
+            expect(chdir.mock.invocationCallOrder[0]).toBeLessThan(driver.quitAndInstall.mock.invocationCallOrder[0]);
+        } finally {
+            Object.defineProperty(process, 'platform', {value: platform});
+        }
+    });
+
+    it('keeps Linux running and exposes retry if the install directory is unavailable', async () => {
+        const platform = process.platform;
+        Object.defineProperty(process, 'platform', {value: 'linux'});
+        chdir.mockImplementation(() => {
+            throw new Error('ENOENT');
+        });
+        try {
+            const {updater, driver, onState} = fixture();
+            await updater.check();
+            driver.emit('update-downloaded', {version: '6.4.1'});
+            expect(updater.install()).toBe(false);
+            expect(driver.quitAndInstall).not.toHaveBeenCalled();
+            expect(onState).toHaveBeenLastCalledWith('interrupted', '6.4.1');
+            expect(updater.isReady()).toBe(false);
+        } finally {
+            Object.defineProperty(process, 'platform', {value: platform});
+        }
+    });
+
     it('checks for a new version without downloading or installing it', async () => {
         const {updater, driver} = fixture();
         await expect(updater.check()).resolves.toEqual({version: '6.4.1'});
