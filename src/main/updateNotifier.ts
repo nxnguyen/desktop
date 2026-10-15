@@ -1,11 +1,8 @@
 // Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import os from 'os';
-
-import {app, ipcMain, net, shell} from 'electron';
+import {app, ipcMain, shell} from 'electron';
 import electronIsDev from 'electron-is-dev';
-import semver from 'semver';
 
 import MessageModal from 'app/mainWindow/modals/messageModal';
 import {
@@ -27,6 +24,7 @@ import {Logger} from 'common/log';
 import downloadsManager from 'main/downloadsManager';
 import {localizeMessage} from 'main/i18nManager';
 import NotificationManager from 'main/notifications';
+import {SelfHostedUpdater} from 'main/selfHostedUpdater';
 
 const NEXT_NOTIFY = 86400000; // 24 hours
 const NEXT_CHECK = 3600000; // 1 hour
@@ -41,6 +39,15 @@ export class UpdateNotifier {
     lastNotification?: NodeJS.Timeout;
     lastCheck?: NodeJS.Timeout;
     versionAvailable?: string;
+    private installPromptOpen = false;
+    private nativeUpdater = new SelfHostedUpdater((state, version, progress) => {
+        downloadsManager.setAppUpdateState(state, version, progress);
+        if (state === 'completed') {
+            this.promptRestart();
+        } else if (state === 'interrupted') {
+            this.displayUpdateError();
+        }
+    });
 
     constructor() {
         ipcMain.on(CHECK_FOR_UPDATES, () => this.checkForUpdates(true));
@@ -71,7 +78,9 @@ export class UpdateNotifier {
     };
 
     notifyUpgrade = (): void => {
-        ipcMain.emit(UPDATE_AVAILABLE, null, this.versionAvailable);
+        if (!this.nativeUpdater.isReady() && !this.nativeUpdater.isDownloading()) {
+            ipcMain.emit(UPDATE_AVAILABLE, null, this.versionAvailable);
+        }
         NotificationManager.displayUpgrade(this.versionAvailable || 'unknown', this.handleDownloadLink);
     };
 
@@ -79,9 +88,18 @@ export class UpdateNotifier {
         log.info('User clicked update notification');
     };
 
+    private clearUpdateNotification = () => {
+        this.versionAvailable = undefined;
+        if (this.lastNotification) {
+            clearTimeout(this.lastNotification);
+            this.lastNotification = undefined;
+        }
+        ipcMain.emit(NO_UPDATE_AVAILABLE);
+    };
+
     displayNoUpgrade = (): void => {
         const version = app.getVersion();
-        ipcMain.emit(NO_UPDATE_AVAILABLE);
+        this.clearUpdateNotification();
         MessageModal.showMessageModal({
             title: app.name,
             message: localizeMessage('main.autoUpdater.noUpdate.message', 'You\'re up to date'),
@@ -94,6 +112,15 @@ export class UpdateNotifier {
     checkForUpdates = (manually: boolean): void => {
         if (!Config.canUpgrade) {
             log.info('update checks are disabled');
+            return;
+        }
+        if (this.nativeUpdater.isReady()) {
+            if (manually) {
+                this.promptRestart();
+            }
+            return;
+        }
+        if (this.nativeUpdater.isDownloading()) {
             return;
         }
         if (this.lastCheck) {
@@ -109,14 +136,17 @@ export class UpdateNotifier {
                     }
                     this.onUpdateAvailable(updateInfo);
                 } else {
-                    ipcMain.emit(NO_UPDATE_AVAILABLE);
+                    this.clearUpdateNotification();
                     if (manually) {
                         this.displayNoUpgrade();
                     }
                 }
             }).catch((reason) => {
-                ipcMain.emit(NO_UPDATE_AVAILABLE);
+                this.clearUpdateNotification();
                 log.error('Failed to check for updates:', {reason});
+                if (manually) {
+                    this.displayUpdateError();
+                }
             });
             this.lastCheck = setTimeout(() => this.checkForUpdates(false), NEXT_CHECK);
         }
@@ -125,50 +155,12 @@ export class UpdateNotifier {
     performUpdateCheck = async (manually: boolean): Promise<UpdateInfo | null> => {
         log.info('Checking for updates', {manually});
 
-        if (electronIsDev) {
+        if (electronIsDev || this.isMacAppStore()) {
             log.info('In development mode, skipping update check');
             return null;
         }
 
-        const currentVersion = app.getVersion();
-        const baseURL = buildConfig.updateNotificationURL;
-
-        let filename = 'latest.txt';
-        const versionMatch = currentVersion.match(/^[0-9]+\.[0-9]+\.[0-9]+-([^.]+)/);
-        if (versionMatch) {
-            filename = `${versionMatch[1]}.txt`;
-        }
-
-        const url = `${baseURL}/${filename}`;
-        log.info('Fetching update info from', {url});
-
-        try {
-            const response = await net.fetch(url);
-
-            if (!response.ok) {
-                log.warn('Update check returned non-200 status', {statusCode: response.status});
-                return null;
-            }
-
-            const remoteVersion = (await response.text()).trim();
-            if (!remoteVersion) {
-                log.warn('Empty version response');
-                return null;
-            }
-
-            log.info('Remote version found', {remoteVersion, currentVersion});
-
-            if (semver.gt(remoteVersion, currentVersion)) {
-                log.info('New version available', {remoteVersion, currentVersion});
-                return {version: remoteVersion};
-            }
-
-            log.info('No update available', {remoteVersion, currentVersion});
-            return null;
-        } catch (error) {
-            log.error('Request error during update check', {error, url});
-            return null;
-        }
+        return this.nativeUpdater.check();
     };
 
     private openWindowsStore = (): void => {
@@ -183,26 +175,64 @@ export class UpdateNotifier {
         }
     };
 
-    private downloadUpdateManually = (): void => {
-        if (!this.versionAvailable) {
-            log.warn('No version available for download');
+    private downloadUpdateManually = async (): Promise<void> => {
+        if (!Config.canUpgrade) {
             return;
         }
+        if (this.nativeUpdater.isReady()) {
+            this.promptRestart();
+            return;
+        }
+        try {
+            // A persisted downloads row is only a hint. After an ordinary app
+            // restart, refresh the native candidate before acting on this click.
+            if (!this.nativeUpdater.hasUpdate()) {
+                const info = await this.performUpdateCheck(true);
+                if (!Config.canUpgrade) {
+                    return;
+                }
+                if (!info) {
+                    this.displayNoUpgrade();
+                    return;
+                }
+                this.onUpdateAvailable(info);
+            }
+            await this.nativeUpdater.download();
+        } catch {
+            // Native download failures already publish an interrupted state.
+            // A failed refresh has no download state to publish.
+            if (!this.nativeUpdater.hasUpdate()) {
+                this.displayUpdateError();
+            }
+        }
+    };
 
-        const version = this.versionAvailable;
-        const baseURL = buildConfig.updateNotificationURL;
-        const platform = process.platform;
-        const arch = os.arch();
+    private displayUpdateError = () => MessageModal.showMessageModal({
+        title: app.name,
+        message: localizeMessage('main.autoUpdater.failed', 'The update could not be completed. Please try again.'),
+        type: 'error',
+        buttons: [localizeMessage('label.ok', 'OK')],
+    });
 
-        switch (platform) {
-        case 'win32':
-            shell.openExternal(`${baseURL}/${version}/${this.getDownloadURL(version, 'win', 'msi', arch)}`);
-            break;
-        case 'darwin':
-            shell.openExternal(`${baseURL}/${version}/${this.getDownloadURL(version, 'mac', 'dmg', arch)}`);
-            break;
-        default:
-            log.error('Unsupported platform for manual download', {platform});
+    private promptRestart = async () => {
+        if (!Config.canUpgrade || !this.nativeUpdater.isReady() || this.installPromptOpen) {
+            return;
+        }
+        this.installPromptOpen = true;
+        try {
+            const result = await MessageModal.showMessageModal({
+                title: app.name,
+                message: localizeMessage('main.autoUpdater.downloaded', 'The update has downloaded. Restart Amobi Collab to verify and install it.'),
+                type: 'info',
+                buttons: [localizeMessage('label.later', 'Later'), localizeMessage('main.autoUpdater.restart', 'Restart to update')],
+                defaultId: 0,
+                cancelId: 0,
+            });
+            if (result.response === 1 && Config.canUpgrade) {
+                this.nativeUpdater.install();
+            }
+        } finally {
+            this.installPromptOpen = false;
         }
     };
 
@@ -231,17 +261,14 @@ export class UpdateNotifier {
         return Boolean(__IS_MAC_APP_STORE__);
     };
 
-    private getDownloadURL = (version: string, platformName: string, fileExt: string, archName: string): string => {
-        return `mattermost-desktop-${version}-${platformName}-${archName}.${fileExt}`;
-    };
-
     private skipVersion = (): void => {
-        if (!this.versionAvailable) {
+        if (!this.versionAvailable || this.nativeUpdater.isDownloading()) {
             log.warn('No version available to skip');
             return;
         }
 
         const versionToSkip = this.versionAvailable;
+        this.nativeUpdater.skip();
         const skippedVersions = Config.data?.skippedVersions || [];
 
         if (skippedVersions.includes(versionToSkip)) {

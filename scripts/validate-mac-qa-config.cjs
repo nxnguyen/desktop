@@ -16,6 +16,10 @@ try {
     assert.equal(production.mac.entitlementsInherit, './resources/mac/entitlements.mac.inherit.plist');
     assert.equal(production.directories.output, 'release');
     assert(!production.artifactName.includes('adhoc-qa'));
+    assert.equal(production.publish[0].provider, 'generic');
+    assert.equal(production.publish[0].channel, 'latest');
+    assert(production.publish[0].url.endsWith('/desktop/stable/${os}/${arch}'));
+    assert.equal(new URL(production.publish[0].url).protocol, 'https:');
 
     process.env.AMOBI_MAC_ADHOC_QA = 'true';
     delete require.cache[builderPath];
@@ -28,6 +32,10 @@ try {
     assert.equal(qa.mac.entitlementsInherit, './resources/mac/entitlements.adhoc-qa.inherit.plist');
     assert.equal(qa.directories.output, 'release-adhoc-qa');
     assert(qa.artifactName.includes('-adhoc-qa.'));
+    assert.equal(qa.publish[0].provider, 'generic');
+    assert.equal(qa.publish[0].channel, 'qa');
+    assert(qa.publish[0].url.endsWith('/desktop/qa/${os}/${arch}'));
+    assert(!qa.publish[0].url.includes('/stable/'));
     for (const file of [qa.mac.entitlements, qa.mac.entitlementsInherit]) {
         const contents = fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
         assert(contents.includes('com.apple.security.cs.disable-library-validation'));

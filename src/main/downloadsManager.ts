@@ -203,6 +203,13 @@ export class DownloadsManager extends JsonFileManager<DownloadedItems> {
                         modified = true;
                         continue;
                     } else {
+                        // Updater readiness belongs to the running native driver,
+                        // so persisted progress or completion cannot authorize install.
+                        if (file.state !== 'available' || file.progress !== 0) {
+                            file.state = 'available';
+                            file.progress = 0;
+                            modified = true;
+                        }
                         continue;
                     }
                 }
@@ -590,6 +597,15 @@ export class DownloadsManager extends JsonFileManager<DownloadedItems> {
         });
         this.openDownloadsDropdown();
     };
+
+    setAppUpdateState = (state: DownloadItemState, version: string, progress = 0) => {
+        this.save(APP_UPDATE_KEY, {
+            ...UPDATE_DOWNLOAD_ITEM,
+            filename: version,
+            state,
+            progress: Math.max(0, Math.min(100, progress)),
+        });
+    };
     private noUpdateAvailable = () => {
         const downloads = this.downloads;
         delete downloads[APP_UPDATE_KEY];
@@ -720,4 +736,4 @@ ipcMain.on(UPDATE_PATHS, () => {
     downloadsManager = new DownloadsManager(downloadsJson);
 });
 
-export default downloadsManager;
+export {downloadsManager as default};

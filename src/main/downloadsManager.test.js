@@ -3,11 +3,12 @@
 import fs from 'fs';
 import path from 'path';
 
-import {app, shell} from 'electron';
+import {app, ipcMain, shell} from 'electron';
 import {getDoNotDisturb as getDarwinDoNotDisturb} from 'macos-notification-state';
 
 import Config from 'common/config';
-import {APP_UPDATE_KEY} from 'common/constants';
+import {UPDATE_PATHS} from 'common/communication';
+import {APP_UPDATE_KEY, UPDATE_DOWNLOAD_ITEM} from 'common/constants';
 import {DownloadsManager} from 'main/downloadsManager';
 
 const downloadLocationMock = '/path/to/downloads';
@@ -335,6 +336,23 @@ describe('main/downloadsManager', () => {
             expect(fs.copyFileSync).not.toHaveBeenCalled();
             expect(app.startAccessingSecurityScopedResource).not.toHaveBeenCalled();
             expect(dl.downloads['file.txt'].state).toBe('completed');
+        });
+    });
+
+    it.each(['progressing', 'completed', 'interrupted'])('resets a persisted %s updater row to require a fresh check', (state) => {
+        const dl = new DownloadsManager(JSON.stringify({
+            [APP_UPDATE_KEY]: {...UPDATE_DOWNLOAD_ITEM, state, progress: 75, filename: '6.4.1'},
+        }));
+        expect(dl.downloads[APP_UPDATE_KEY]).toEqual(expect.objectContaining({state: 'available', progress: 0}));
+    });
+
+    it('exports the active downloads manager after an isolated profile changes paths', () => {
+        jest.isolateModules(() => {
+            const downloadsModule = require('main/downloadsManager');
+            const previous = downloadsModule.default;
+            const callback = ipcMain.on.mock.calls.filter(([event]) => event === UPDATE_PATHS).pop()[1];
+            callback();
+            expect(downloadsModule.default).not.toBe(previous);
         });
     });
 

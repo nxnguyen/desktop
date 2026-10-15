@@ -28,7 +28,13 @@ const config = {
     },
     extraMetadata: {
         main: 'index.js',
+        name: 'amobi-collab-desktop',
     },
+    publish: [{
+        provider: 'generic',
+        url: 'https://updates.152.42.230.207.sslip.io/desktop/' + (macAdhocQa ? 'qa' : 'stable') + '/${os}/${arch}',
+        channel: macAdhocQa ? 'qa' : 'latest',
+    }],
     files: [
         '!node_modules/**/*',
         'node_modules/bindings/**/*',
@@ -198,7 +204,12 @@ const config = {
         target: [
             'zip',
             'msi',
+            'nsis',
         ],
+        verifyUpdateCodeSignature: true,
+        signtoolOptions: {
+            publisherName: process.env.AMOBI_WINDOWS_PUBLISHER || undefined,
+        },
         extraFiles: [
             {
                 filter: [

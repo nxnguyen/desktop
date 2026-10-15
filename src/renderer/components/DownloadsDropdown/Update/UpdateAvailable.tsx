@@ -1,8 +1,8 @@
 // Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useEffect, useState} from 'react';
-import {FormattedMessage, useIntl} from 'react-intl';
+import React, {useState} from 'react';
+import {FormattedMessage} from 'react-intl';
 
 import type {DownloadedItem} from 'types/downloads';
 
@@ -16,73 +16,38 @@ type OwnProps = {
 }
 
 const UpdateAvailable = ({item, appName, activeItem}: OwnProps) => {
-    const {formatMessage} = useIntl();
     const [threeDotButtonVisible, setThreeDotButtonVisible] = useState(false);
-    const [isMacAppStore, setIsMacAppStore] = useState(false);
-    const platform = window.process.platform;
+    const downloading = item.state === 'progressing';
+    const ready = item.state === 'completed';
 
-    useEffect(() => {
-        if (platform === 'darwin') {
-            window.desktop.getIsMacAppStore().then(setIsMacAppStore);
-        }
-    }, [platform]);
-
-    const handleMainButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e?.preventDefault?.();
-
-        if (platform === 'win32') {
-            window.desktop.openWindowsStore();
-        } else if (platform === 'darwin') {
-            if (isMacAppStore) {
-                window.desktop.openMacAppStore();
-            } else {
-                window.desktop.downloadUpdateManually();
-            }
-        } else if (platform === 'linux') {
-            window.desktop.openLinuxGitHubRelease();
-        }
-    };
-
-    const handleDownloadManually = (e: React.MouseEvent<HTMLAnchorElement>) => {
-        e?.preventDefault?.();
+    const handleMainButtonClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
         window.desktop.downloadUpdateManually();
     };
 
-    const handleViewInstallGuide = (e: React.MouseEvent<HTMLAnchorElement>) => {
-        e?.preventDefault?.();
-        window.desktop.openUpdateGuide();
-    };
-
     const getMainButtonText = () => {
-        if (platform === 'win32') {
+        if (downloading) {
             return (
                 <FormattedMessage
-                    id='renderer.downloadsDropdown.Update.OpenWindowsStore'
-                    defaultMessage='Open Windows Store'
+                    id='renderer.downloadsDropdown.Update.Downloading'
+                    defaultMessage='Downloading… {percent}%'
+                    values={{percent: Math.round(item.progress)}}
                 />
             );
         }
-        if (platform === 'darwin') {
-            if (isMacAppStore) {
-                return (
-                    <FormattedMessage
-                        id='renderer.downloadsDropdown.Update.OpenMacAppStore'
-                        defaultMessage='Open Mac App Store'
-                    />
-                );
-            }
+        if (ready) {
             return (
                 <FormattedMessage
-                    id='renderer.downloadsDropdown.Update.DownloadUpdate'
-                    defaultMessage='Download update'
+                    id='renderer.downloadsDropdown.Update.Restart'
+                    defaultMessage='Restart to update'
                 />
             );
         }
-        if (platform === 'linux') {
+        if (item.state === 'interrupted') {
             return (
                 <FormattedMessage
-                    id='renderer.downloadsDropdown.Update.ViewDownloadOptions'
-                    defaultMessage='View download options'
+                    id='renderer.downloadsDropdown.Update.Retry'
+                    defaultMessage='Retry download'
                 />
             );
         }
@@ -109,10 +74,17 @@ const UpdateAvailable = ({item, appName, activeItem}: OwnProps) => {
                     className='DownloadsDropdown__Update__Details__Title'
                     id='update-available-title'
                 >
-                    <FormattedMessage
-                        id='renderer.downloadsDropdown.Update.NewDesktopVersionAvailable'
-                        defaultMessage='New version available'
-                    />
+                    {ready ? (
+                        <FormattedMessage
+                            id='renderer.downloadsDropdown.Update.Downloaded'
+                            defaultMessage='Update downloaded'
+                        />
+                    ) : (
+                        <FormattedMessage
+                            id='renderer.downloadsDropdown.Update.NewDesktopVersionAvailable'
+                            defaultMessage='New version available'
+                        />
+                    )}
                 </div>
                 <div
                     className='DownloadsDropdown__Update__Details__Description'
@@ -131,44 +103,18 @@ const UpdateAvailable = ({item, appName, activeItem}: OwnProps) => {
                     id='downloadUpdateButton'
                     className='primary-button DownloadsDropdown__Update__Details__Button'
                     onClick={handleMainButtonClick}
+                    disabled={downloading}
+                    aria-busy={downloading}
                     aria-labelledby='update-available-title downloadUpdateButton'
                     aria-describedby='update-available-description'
                 >
                     {getMainButtonText()}
                 </button>
-                <div className='DownloadsDropdown__Update__Details__SubButtons'>
-                    {platform === 'win32' && (
-                        <a
-                            className='DownloadsDropdown__Update__Details__SubButton'
-                            onClick={handleDownloadManually}
-                            href='#'
-                            aria-label={formatMessage({id: 'renderer.downloadsDropdown.Update.DownloadManually', defaultMessage: 'Download installer'})}
-                        >
-                            <FormattedMessage
-                                id='renderer.downloadsDropdown.Update.DownloadManually'
-                                defaultMessage='Download installer'
-                            />
-                        </a>
-                    )}
-                    {platform === 'linux' && (
-                        <a
-                            className='DownloadsDropdown__Update__Details__SubButton'
-                            onClick={handleViewInstallGuide}
-                            href='#'
-                            aria-label={formatMessage({id: 'renderer.downloadsDropdown.Update.ViewInstallGuide', defaultMessage: 'View install guide'})}
-                        >
-                            <FormattedMessage
-                                id='renderer.downloadsDropdown.Update.ViewInstallGuide'
-                                defaultMessage='View install guide'
-                            />
-                        </a>
-                    )}
-                </div>
             </div>
             <ThreeDotButton
                 item={item}
                 activeItem={activeItem}
-                visible={threeDotButtonVisible}
+                visible={threeDotButtonVisible && !downloading && !ready}
             />
         </div>
     );

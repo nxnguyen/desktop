@@ -1,21 +1,26 @@
 // Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {ipcMain as notMockedIpcMain, app as notMockedApp, net as notMockedNet} from 'electron';
+import {ipcMain as notMockedIpcMain, app as notMockedApp} from 'electron';
+import {autoUpdater, type UpdateDownloadedEvent} from 'electron-updater';
 
+import MessageModal from 'app/mainWindow/modals/messageModal';
 import {
     CHECK_FOR_UPDATES,
     UPDATE_AVAILABLE,
     NO_UPDATE_AVAILABLE,
     UPDATE_SHORTCUT_MENU,
+    DOWNLOAD_UPDATE_MANUALLY,
 } from 'common/communication';
+import Config from 'common/config';
+import DownloadsManager from 'main/downloadsManager';
+import {localizeMessage} from 'main/i18nManager';
 import NotificationManager from 'main/notifications';
 
 import {UpdateNotifier} from './updateNotifier';
 
 const ipcMain = jest.mocked(notMockedIpcMain);
 const app = jest.mocked(notMockedApp);
-jest.mocked(notMockedNet);
 
 jest.mock('electron', () => ({
     app: {
@@ -41,9 +46,7 @@ jest.mock('common/config', () => ({
 }));
 
 jest.mock('common/config/buildConfig', () => ({
-    default: {
-        updateNotificationURL: 'https://releases.mattermost.com/desktop',
-    },
+    updateNotificationURL: 'https://updates.152.42.230.207.sslip.io/desktop/stable',
 }));
 
 jest.mock('main/notifications', () => ({
@@ -67,8 +70,21 @@ jest.mock('electron-is-dev', () => ({
     default: false,
 }));
 
+jest.mock('electron-updater', () => {
+    const {EventEmitter} = jest.requireActual('events');
+    return {
+        autoUpdater: Object.assign(new EventEmitter(), {
+            checkForUpdates: jest.fn(),
+            downloadUpdate: jest.fn(),
+            quitAndInstall: jest.fn(),
+            netSession: {webRequest: {onBeforeRequest: jest.fn()}},
+        }),
+    };
+});
+
 jest.mock('main/downloadsManager', () => ({
     removeUpdateBeforeRestart: jest.fn(),
+    setAppUpdateState: jest.fn(),
 }));
 
 jest.mock('app/mainWindow/modals/messageModal', () => ({
@@ -77,8 +93,6 @@ jest.mock('app/mainWindow/modals/messageModal', () => ({
         showMessageModal: jest.fn(),
     },
 }));
-
-const net = jest.mocked(notMockedNet);
 
 describe('main/updateNotifier', () => {
     describe('constructor', () => {
@@ -218,14 +232,149 @@ describe('main/updateNotifier', () => {
 
         it('should return update info', async () => {
             app.getVersion.mockReturnValue('5.0.0');
-            const mockResponse = {
-                ok: true,
-                text: jest.fn().mockResolvedValue('6.1.0-develop.2\n'),
-            } as unknown as Response;
-            net.fetch.mockResolvedValue(mockResponse);
+            jest.mocked(autoUpdater.checkForUpdates).mockResolvedValue({
+                isUpdateAvailable: true,
+                updateInfo: {version: '6.1.0-develop.2'},
+            } as Awaited<ReturnType<typeof autoUpdater.checkForUpdates>>);
             const updateNotifier = new UpdateNotifier();
             const result = await updateNotifier.performUpdateCheck(false);
             expect(result).toEqual({version: '6.1.0-develop.2'});
+        });
+    });
+
+    describe('download and restart consent', () => {
+        const downloadedUpdate: UpdateDownloadedEvent = {
+            version: '6.4.1', files: [], path: '', sha512: '', releaseDate: '', downloadedFile: '/cache/update.zip',
+        };
+
+        beforeEach(() => {
+            jest.useFakeTimers();
+            autoUpdater.removeAllListeners();
+            Object.assign(Config, {canUpgrade: true});
+            jest.mocked(localizeMessage).mockImplementation((key, defaultValue) => defaultValue || key);
+            app.getVersion.mockReturnValue('6.4.0');
+            jest.mocked(autoUpdater.checkForUpdates).mockResolvedValue({
+                isUpdateAvailable: true,
+                updateInfo: {version: '6.4.1'},
+            } as Awaited<ReturnType<typeof autoUpdater.checkForUpdates>>);
+            jest.mocked(autoUpdater.downloadUpdate).mockResolvedValue([]);
+            jest.mocked(MessageModal.showMessageModal).mockResolvedValue({response: 0} as Awaited<ReturnType<typeof MessageModal.showMessageModal>>);
+        });
+
+        afterEach(() => {
+            autoUpdater.removeAllListeners();
+            jest.clearAllTimers();
+            jest.useRealTimers();
+            jest.resetAllMocks();
+            Object.assign(Config, {canUpgrade: true});
+        });
+
+        const clickDownload = async () => {
+            const listener = ipcMain.on.mock.calls.find(([channel]) => channel === DOWNLOAD_UPDATE_MANUALLY)?.[1];
+            expect(listener).toBeDefined();
+            await listener?.({} as Electron.IpcMainEvent);
+        };
+
+        it('rechecks a persisted update on an explicit download click after app restart', async () => {
+            const notifier = new UpdateNotifier();
+            expect(notifier.versionAvailable).toBeUndefined();
+            await clickDownload();
+            expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+            expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1);
+            expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        });
+
+        it('keeps a downloaded update after Later and requires a separate restart choice', async () => {
+            const notifier = new UpdateNotifier();
+            expect(notifier).toBeDefined();
+            await clickDownload();
+            autoUpdater.emit('update-downloaded', downloadedUpdate);
+            await Promise.resolve();
+            expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+            expect(MessageModal.showMessageModal).toHaveBeenCalledWith(expect.objectContaining({
+                message: expect.stringContaining('downloaded'), defaultId: 0, cancelId: 0,
+            }));
+            jest.mocked(MessageModal.showMessageModal).mockResolvedValueOnce({response: 1} as Awaited<ReturnType<typeof MessageModal.showMessageModal>>);
+            await clickDownload();
+            expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not download a persisted candidate excluded by native update checks', async () => {
+            const notifier = new UpdateNotifier();
+            expect(notifier).toBeDefined();
+            jest.mocked(autoUpdater.checkForUpdates).mockResolvedValue({
+                isUpdateAvailable: false, updateInfo: {version: '6.4.1'},
+            } as Awaited<ReturnType<typeof autoUpdater.checkForUpdates>>);
+            await clickDownload();
+            expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+            expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        });
+
+        it('preserves the downloaded row when the daily reminder fires', async () => {
+            const notifier = new UpdateNotifier();
+            await clickDownload();
+            autoUpdater.emit('update-downloaded', downloadedUpdate);
+            ipcMain.emit.mockClear();
+            notifier.notifyUpgrade();
+            expect(ipcMain.emit).not.toHaveBeenCalledWith(UPDATE_AVAILABLE, null, '6.4.1');
+        });
+
+        it('shows one error and allows retry after native signature verification fails', async () => {
+            const notifier = new UpdateNotifier();
+            expect(notifier).toBeDefined();
+            await clickDownload();
+            autoUpdater.emit('update-downloaded', downloadedUpdate);
+            await Promise.resolve();
+            jest.mocked(MessageModal.showMessageModal).mockResolvedValueOnce({response: 1} as Awaited<ReturnType<typeof MessageModal.showMessageModal>>);
+            await clickDownload();
+            jest.mocked(MessageModal.showMessageModal).mockClear();
+            autoUpdater.emit('error', new Error('Squirrel signature verification failed'));
+            expect(DownloadsManager.setAppUpdateState).toHaveBeenLastCalledWith('interrupted', '6.4.1', undefined);
+            expect(MessageModal.showMessageModal).toHaveBeenCalledTimes(1);
+            await clickDownload();
+            expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(2);
+        });
+
+        it('rechecks upgrade policy after the user answers the restart prompt', async () => {
+            const notifier = new UpdateNotifier();
+            expect(notifier).toBeDefined();
+            await clickDownload();
+            let answer: (result: {response: number; checkboxChecked: boolean}) => void = () => {};
+            jest.mocked(MessageModal.showMessageModal).mockImplementationOnce(() => new Promise((resolve) => {
+                answer = resolve;
+            }));
+            autoUpdater.emit('update-downloaded', downloadedUpdate);
+            Object.assign(Config, {canUpgrade: false});
+            answer({response: 1, checkboxChecked: false});
+            await Promise.resolve();
+            expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        });
+
+        it('does not download if policy is disabled while refreshing a persisted candidate', async () => {
+            const notifier = new UpdateNotifier();
+            expect(notifier).toBeDefined();
+            jest.mocked(autoUpdater.checkForUpdates).mockImplementationOnce(async () => {
+                Object.assign(Config, {canUpgrade: false});
+                return {
+                    isUpdateAvailable: true, updateInfo: {version: '6.4.1'},
+                } as Awaited<ReturnType<typeof autoUpdater.checkForUpdates>>;
+            });
+            await clickDownload();
+            expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+        });
+
+        it('clears a stale version and its reminder when a manual recheck finds no update', async () => {
+            const notifier = new UpdateNotifier();
+            notifier.versionAvailable = '6.4.1';
+            notifier.notify();
+            jest.mocked(autoUpdater.checkForUpdates).mockResolvedValue({
+                isUpdateAvailable: false, updateInfo: {version: '6.4.1'},
+            } as Awaited<ReturnType<typeof autoUpdater.checkForUpdates>>);
+            const check = jest.spyOn(notifier, 'performUpdateCheck');
+            notifier.checkForUpdates(true);
+            await check.mock.results[0].value;
+            expect(notifier.versionAvailable).toBeUndefined();
+            expect(notifier.lastNotification).toBeUndefined();
         });
     });
 });

@@ -16,7 +16,7 @@ type OwnProps = {
 }
 
 const UpdateWrapper = ({item, appName, activeItem}: OwnProps) => {
-    if (item.state === 'available') {
+    if (['available', 'progressing', 'completed', 'interrupted'].includes(item.state)) {
         return (
             <UpdateAvailable
                 item={item}

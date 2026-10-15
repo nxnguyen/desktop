@@ -41,6 +41,11 @@ async function ensureKoffiBinary(context) {
 }
 
 exports.default = async function beforePack(context) {
+    if (context.electronPlatformName === 'win32' && context.targets.some((target) => target.name === 'nsis') &&
+        !context.packager.config.win?.signtoolOptions?.publisherName &&
+        !context.packager.config.win?.azureSignOptions?.publisherName) {
+        throw new Error('Self-hosted NSIS updates require an explicit signing publisher name');
+    }
     await ensureKoffiBinary(context);
 
     // The debian packager (fpm) complains when the directory to output the package to doesn't exist
