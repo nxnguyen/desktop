@@ -20,7 +20,7 @@ function getWindowsDoNotDisturb() {
     case 2:
         return true;
     case 1:
-        return !(isPriority('Mattermost.Desktop').value);
+        return !(isPriority('com.amobi.collab.platform.desktop').value);
     default:
         return false;
     }

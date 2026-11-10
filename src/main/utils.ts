@@ -128,7 +128,7 @@ export function resetScreensharePermissionsMacOS() {
     if (process.platform !== 'darwin') {
         return Promise.resolve();
     }
-    return exec('tccutil reset ScreenCapture Mattermost.Desktop',
+    return exec('tccutil reset ScreenCapture com.amobi.collab.platform.desktop',
         {timeout: 1000});
 }
 

@@ -45,7 +45,7 @@ function WelcomeScreen({
             subtitle: (
                 <FormattedMessage
                     id='renderer.components.welcomeScreen.slides.welcome.subtitle'
-                    defaultMessage='Mattermost is a sovereign collaboration platform built for operational environments and uncompromising security.'
+                    defaultMessage='Amobi Collab is a sovereign collaboration platform built for operational environments and uncompromising security.'
                 />
             ),
             image: (

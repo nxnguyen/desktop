@@ -16,7 +16,7 @@ const codeDefinitions = {
     __HASH_VERSION__: !isRelease && JSON.stringify(VERSION),
     __IS_NIGHTLY_BUILD__: JSON.stringify(process.env.GITHUB_WORKFLOW && process.env.GITHUB_WORKFLOW.startsWith('nightly')),
     __IS_MAC_APP_STORE__: JSON.stringify(process.env.IS_MAC_APP_STORE === 'true'),
-    __SKIP_ONBOARDING_SCREENS__: JSON.stringify(process.env.MM_DESKTOP_BUILD_SKIPONBOARDINGSCREENS === 'true'),
+    __SKIP_ONBOARDING_SCREENS__: JSON.stringify(process.env.MM_DESKTOP_BUILD_SKIPONBOARDINGSCREENS !== 'false'),
     __DISABLE_GPU__: JSON.stringify(process.env.MM_DESKTOP_BUILD_DISABLEGPU === 'true'),
     __SENTRY_DSN__: JSON.stringify(process.env.MM_DESKTOP_BUILD_SENTRYDSN || ''),
 };

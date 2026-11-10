@@ -7,17 +7,17 @@ cd "$(dirname "$THIS_PATH")"
 FULL_PATH=$(pwd)
 cd "$WORKING_DIR"
 
-cat <<EOS > com.Mattermost.Desktop.desktop
+cat <<EOS > com.amobi.collab.platform.desktop.desktop
 [Desktop Entry]
-Name=Mattermost
-Comment=Mattermost Desktop application for Linux
-Exec="${FULL_PATH}/com.Mattermost.Desktop" %U
+Name=Amobi Collab
+Comment=Amobi Collab Desktop application for Linux
+Exec="${FULL_PATH}/com.amobi.collab.platform.desktop" %U
 Terminal=false
 Type=Application
 MimeType=x-scheme-handler/mattermost
 Icon="${FULL_PATH}/app_icon.png"
 Categories=Network;InstantMessaging;
-StartupWMClass=com.Mattermost.Desktop
+StartupWMClass=com.amobi.collab.platform.desktop
 EOS
 
-chmod +x com.Mattermost.Desktop.desktop
+chmod +x com.amobi.collab.platform.desktop.desktop

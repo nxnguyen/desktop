@@ -6,7 +6,7 @@ import type {BuildConfig} from 'types/config';
 
 import {DEFAULT_ACADEMY_LINK, DEFAULT_HELP_LINK, DEFAULT_UPGRADE_LINK} from '../../common/constants';
 
-// For detailed guides, please refer to https://docs.mattermost.com/deployment/desktop-app-deployment.html
+// For detailed guides, please refer to https://docs.mattermost.com/deployment-guide/desktop/distribute-a-custom-desktop-app
 
 /**
  * Build-time configuration. End-users can't change these parameters.
@@ -24,16 +24,14 @@ import {DEFAULT_ACADEMY_LINK, DEFAULT_HELP_LINK, DEFAULT_UPGRADE_LINK} from '../
  * @prop {[]} trustedEmbeddedMediaOrigins - Explicit origin pairs that may share media permissions for embedded content
  */
 const buildConfig: BuildConfig = {
-    defaultServers: [/*
-    {
-      name: 'example',
-      url: 'https://example.com'
-    }
-  */],
+    defaultServers: [{
+        name: 'Amobi Collab',
+        url: 'https://152.42.230.207.sslip.io',
+    }],
     helpLink: DEFAULT_HELP_LINK,
     academyLink: DEFAULT_ACADEMY_LINK,
     upgradeLink: DEFAULT_UPGRADE_LINK,
-    enableServerManagement: true,
+    enableServerManagement: false,
     enableUpdateNotifications: true,
     updateNotificationURL: 'https://updates.152.42.230.207.sslip.io/desktop/stable',
     macAppStoreUpdateURL: 'macappstore://apps.apple.com/us/app/mattermost-desktop/id1614666244',
